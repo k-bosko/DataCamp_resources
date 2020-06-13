@@ -1,0 +1,1245 @@
+Notes on “Exploratory Data Analysis in SQL” 
+Instructor: Christina Maimone, PhD
+
+=====================================
+
+IS NULL, IS NOT NULL 		(don’t use = NULL)
+count(*)				number of rows (including NULLs)
+count(col_name)			number of non-NULL values
+count(DISTINCT col_name)	number of unique non-NULL values
+SELECT DISTINCT col_name	distinct values, including NULL
+
+
+=======================
+COUNTING MISSING VALUES
+=======================
+SELECT COUNT(*) - COUNT(profits_change) AS missing
+FROM fortune500;
+
+===========================
+COALESCE(value_1, value_2 [,…])
+===========================
+Operates row by rows
+Returns first non-NULL value
+Useful to specify default values (e.g. to avoid diving by null)
+
+e.g. if value in row1 of column1 is null, then coalesce() returns the value in row1 of column2
+If there are values in both columns, returns the value of column1
+
+==================================
+SELF-JOIN to explore subsidiaries 
+==================================
+SELECT company_original.name, title, rank
+  -- Start with original company information
+  FROM company AS company_original
+      -- Join to another copy of company with parent
+      -- company information
+	   LEFT JOIN company AS company_parent
+      ON company_original.parent_id = company_parent.id 
+      -- Join to fortune500, only keep rows that match
+      INNER JOIN fortune500 
+      -- Use parent ticker if there is one, 
+      -- otherwise original ticker
+      ON coalesce(company_parent.ticker, 
+                  company_original.ticker) = 
+             fortune500.ticker
+ -- For clarity, order by rank
+ ORDER BY rank; 
+
+==================================
+Column Constraints
+==================================
+Foreign key : value that exists in the referenced column, or NULL
+Primary key  : unique, not NULL
+Unique : values must tall be different except for NULL
+Not Null: NULL not allowed : must have a value
+Check constraints: conditions on the values
+  Column1 > 0
+  ColumnA > ColumnB
+
+Data Types:
+- Numeric
+- Character
+- Date/Time
+- Boolean
+
+Changing column/value type for the query with CAST()
+
+SELECT CAST (value AS new_type);
+e.g. SELECT CAST (3.7 AS integer);	—> Output: 4
+e.g. SELECT CAST (total AS integer)
+       FROM prices;
+
+Casting with ::
+SELECT value::new_type;
+e.g. SELECT 3.7 :: integer;		—> Output: 4
+e.g. SELECT total :: integer
+       FROM prices;
+
+==================================
+-- Divide 10 by 3
+SELECT 10/3, 
+       -- Cast 10 as numeric and divide by 3
+       10::NUMERIC/3;
+
+Output:
+3	3.3333333
+====================================
+SELECT '3.2'::numeric,
+       '-123'::numeric,
+       '1e3'::numeric,
+       '1e-3'::numeric,
+       '02314'::numeric,
+       '0002'::numeric;
+
+Output:
+3.2	-123	1000	2314	2
+
+====================================
+Distribution of Numeric Values
+====================================
+-- Select the count of each revenues_change integer value
+SELECT revenues_change::INTEGER, COUNT(*)
+  FROM fortune500
+ GROUP BY revenues_change::INTEGER
+ -- order by the values of revenues_change
+ ORDER BY revenues_change::INTEGER;
+
+Output:
+-58	1
+-53	1
+-51	2
+…
+===================================
+Numeric Data Types and Summary Functions
+====================================
+Division
+— integer division
+SELECT 10/4;
+Output: 2
+
+— numeric division
+SELECT 10/4;
+Output: 2.5000000000
+
+— Summarize by group
+SELECT tag,
+	min(quesiton_pct),
+	avg(question_pct),
+	max(question_pct)
+FROM stack overflow
+GROUP BY tag;
+
+Other summary statistics in SQL:
+— standard deviation
+stddev_samp()
+stddev_pop()
+stddev()
+
+— variance
+var_pop()
+var_samp()
+variance()
+
+=========================
+Avg Revenue per Employee
+=========================
+-- Select average revenue per employee by sector
+SELECT sector, 
+       AVG(revenues/employees::NUMERIC) AS avg_rev_employee
+  FROM fortune500
+ GROUP BY sector
+ -- Use the column alias to order the results
+ ORDER BY avg_rev_employee;
+
+
+==========================
+Exploring Distributions
+===========================
+Truncating and grouping
+
+TRUNC() != ROUND()
+You will never get result larger than the original value
+
+e.g. SELECT trunc(42.1256, 2); 	—> 42.12
+e.g. SELECT trunc(12345, -3); 	—>  12000
+
+Generate series
+SELECT generate_series(1, 10, 2);
+Output:
+1
+3
+5
+7
+9
+
+====================
+Create Bins
+====================
+1. Generate series with lower and upper limits as CTE
+2. Select subset of data as CTE
+3. LEFT JOIN subqueries in main query ON count >= lower & < upper
+4. GROUP BY lower, upper
+5. ORDER BY lower
+
+
+Distribution of companies with # of employees (bins 100,000)
+
+-- Truncate employees
+SELECT TRUNC(employees, -5) AS employee_bin,
+       -- Count number of companies with each truncated value
+       COUNT(*)
+  FROM fortune500
+ -- Use alias to group
+ GROUP BY employee_bin
+ -- Use alias to order
+ ORDER BY employee_bin;
+
+=======================
+Distribution of # of questions with tag “dropbox” on Stackoverflow per day 
+=======================
+1. Select min and max two know range of values to cover with the bins
+
+-- Select the min and max of question_count
+SELECT MIN(question_count), 
+       MAX(question_count)
+  -- From what table?
+  FROM stackoverflow
+ -- For tag dropbox
+ WHERE tag = 'dropbox';
+
+Output:
+min	max
+2315	3072
+
+
+-- Bins 
+WITH bins AS (
+      SELECT generate_series(2200, 3050, 50) AS lower,
+             generate_series(2250, 3100, 50) AS upper),
+     -- Subset stackoverflow to just tag dropbox (Step 1)
+     dropbox AS (
+      SELECT question_count 
+        FROM stackoverflow
+       WHERE tag='dropbox') 
+-- Select columns for result
+-- What column are you counting to summarize?
+SELECT lower, upper, count(question_count) 
+  FROM bins  -- Created above
+       -- Join to dropbox (created above), 
+       -- keeping all rows from the bins table in the join
+       LEFT JOIN dropbox
+       -- Compare question_count to lower and upper
+         ON question_count >= lower 
+        AND question_count < upper
+ -- Group by lower and upper to count values in each bin
+ GROUP BY lower, upper
+ -- Order by lower to put bins in order
+ ORDER BY lower;
+
+========================
+Correlation
+========================
+Output of corr() is of type double precision, so we need to cast columns to NUMERIC
+
+
+SELECT corr(assets, equity)
+   FROM fortune500;
+
+===============================
+Median (50% percentile or mid-point of a list of values) 
+=================================
+Note: values must be ordered to get median (!)
+
+For discrete values, returns a value from column:
+SELECT percentile_disc(percentile) WITHIN GROUP (ORDER BY column_name)
+   FROM table;
+
+For continuous values, interpolates between values:
+SELECT percentile_cont(percentile) WITHIN GROUP (ORDER BY column_name)
+   FROM table;
+
+e.g. 1,3,4,5
+Percentile_disc(0.5) —> 3
+Percentile_cont(0.5) —> 3.5
+
+================================
+Comparing mean and median by sectors
+================================
+
+-- What groups are you computing statistics by?
+SELECT sector,
+       -- Select the mean of assets with the avg function
+       AVG(assets) AS mean,
+       -- Select the median
+       PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY assets) AS median
+  FROM fortune500
+ -- Computing statistics for each what?
+ GROUP BY sector
+ -- Order results by a value of interest
+ ORDER BY mean;
+
+========================
+Create Temporary Tables
+========================
+Option 1
+
+— Create table as
+CREATE TEMP TABLE new_tablename AS 
+— Query results to store in the table
+SELECT column1, column2
+FROM table;
+
+Option 2
+
+SELECT col1, col2
+   — Clause to direct results to a new tamp table
+   INTO TEMP TABLE new_tablename
+   — Existing table with existing columns
+   FROM table;
+
+Delete table
+DROP TABLE new_tablename
+
+DROP TABLE IF EXISTS top_companies;
+
+=========================
+Temp table for companies with profits in thee top 20% for their sector
+=========================
+1. Create temp table that calculates 80% percentile for each sector
+2. LEFT JOIN with original table 
+3. Select only rows with profits > 80%
+
+DROP TABLE IF EXISTS profit80;
+
+CREATE TEMP TABLE profit80 AS
+  SELECT sector, 
+         percentile_disc(0.8) WITHIN GROUP (ORDER BY profits) AS pct80
+    FROM fortune500 
+   GROUP BY sector;
+
+-- Select columns, aliasing as needed
+SELECT title, profit80.sector, 
+       profits, profits/profit80.pct80 AS ratio
+-- What tables do you need to join?  
+  FROM fortune500 
+       LEFT JOIN profit80
+-- How are the tables joined?
+       ON fortune500.sector=profit80.sector
+-- What rows do you want to select?
+ WHERE profits > pct80;
+
+========================
+Count questions per tag on min date for each tag 
+Count questions per tag on max date for each tag 
+Delta
+==========================
+-- To clear table if it already exists
+DROP TABLE IF EXISTS startdates;
+
+CREATE TEMP TABLE startdates AS
+SELECT tag, min(date) AS mindate
+  FROM stackoverflow
+ GROUP BY tag;
+ 
+-- Select tag (Remember the table name!) and mindate
+SELECT startdates.tag, 
+       startdates.mindate, 
+       -- Select question count on the min and max days
+	   so_min.question_count AS min_date_question_count,
+       so_max.question_count AS max_date_question_count,
+       -- Compute the change in question_count (max- min)
+       so_max.question_count - so_min.question_count AS change
+  FROM startdates
+       -- Join startdates to stackoverflow with alias so_min
+       INNER JOIN stackoverflow AS so_min
+          -- What needs to match between tables?
+          ON startdates.tag = so_min.tag
+         AND startdates.mindate = so_min.date
+       -- Join to stackoverflow again with alias so_max
+       INNER JOIN stackoverflow AS so_max
+       	  -- Again, what needs to match between tables?
+          ON startdates.tag = so_max.tag
+         AND so_max.date = '2018-09-25';
+
+
+Output:
+Tag		mindate	min_date_question_count	max_date_question_count	  change
+———————————————————————————————————————
+Paypal	2016-01-01	13296				18050				  4754
+…
+
+=======================
+Insert into a temp table
+=========================
+
+DROP TABLE IF EXISTS correlations;
+
+-- Create temp table 
+CREATE TEMP TABLE correlations AS
+-- Select each correlation
+SELECT 'profits'::varchar AS measure,
+       -- Compute correlations
+       CORR(profits, profits) AS profits,
+       CORR(profits, profits_change) AS profits_change,
+       CORR(profits, revenues_change) AS revenues_change
+  FROM fortune500;
+
+=======================
+CORRELATION MATRIX
+=======================
+DROP TABLE IF EXISTS correlations;
+
+CREATE TEMP TABLE correlations AS
+SELECT 'profits'::varchar AS measure,
+       corr(profits, profits) AS profits,
+       corr(profits, profits_change) AS profits_change,
+       corr(profits, revenues_change) AS revenues_change
+  FROM fortune500;
+
+INSERT INTO correlations
+SELECT 'profits_change'::varchar AS measure,
+       corr(profits_change, profits) AS profits,
+       corr(profits_change, profits_change) AS profits_change,
+       corr(profits_change, revenues_change) AS revenues_change
+  FROM fortune500;
+
+INSERT INTO correlations
+SELECT 'revenues_change'::varchar AS measure,
+       corr(revenues_change, profits) AS profits,
+       corr(revenues_change, profits_change) AS profits_change,
+       corr(revenues_change, revenues_change) AS revenues_change
+  FROM fortune500;
+
+-- Select each column, rounding the correlations
+SELECT measure, 
+       ROUND(profits:: numeric, 2) AS profits,
+       ROUND(profits_change:: numeric, 2) AS profits_change,
+       ROUND(revenues_change:: numeric, 2) AS revenues_change
+  FROM correlations;
+
+Output:
+Measure		profits		profits_change	revenues_change
+—————————————————————————————
+Profits			1.00		0.02			0.02
+profits_change	0.02		1.00			-0.09
+revenues_change	0.02		-0.09			1.00
+
+==============================
+PostgreSQL character types
+==============================
+character(n), char(n) —> fixed length n
+Character varying(n), varchar(n)	—> variable length up to max n
+
+Categorical data:
+ORDER BY count DESC; —> shows most frequent values first
+ORDER BY category; —> to check if there are duplicates/errors in data
+
+Alphabetical order:
+‘ ‘ < ‘A’ < ‘a’
+‘Apple’ != ‘apple’ (case matters)
+‘ apple’ != ‘apple (spaces count)
+‘’ != ‘ ‘ (empty string not the same of string with spaces)
+‘’ != NULL (empty string not the same as null)
+‘To-do’ != ‘To—do’ (punctuation differences)
+
+
+-- Find values of zip that appear in at least 100 rows
+-- Also get the count of each value
+SELECT zip, COUNT(*)
+  FROM evanston311
+ GROUP BY zip
+HAVING COUNT(*) > 100; 
+
+-- Find the 5 most common values of street and the count of each
+SELECT street, COUNT(*)
+  FROM evanston311
+ GROUP BY street
+ ORDER BY COUNT(*) DESC
+ LIMIT 5;
+
+==================================
+Deal with Inconsistences in Categorical Data
+==================================
+1. Converting Case
+
+SELECT lower(‘aBc DeFg’); —> abc deft
+SELECT upper(‘aBc DeFg’); —> ABC DEFG
+
+——
+2. Match queries with search string anywhere in the string with LIKE %search string%
+e.g.
+SELECT *
+	FROM fruit
+WHERE fav_fruit LIKE %apple%;
+
+output: 
+apple
+  apple
+
+Note: LIKE produces True or False as a result, but casting a boolean (True or False) as an integer converts True to 1 and False to 0
+e.g. CAST(description LIKE ‘%@%’ AS integer)
+
+——
+3. Insensitive search with ILIKE (take longer to run!)
+
+SELECT *
+	FROM fruit
+WHERE fav_fruit ILIKE %apple%;
+
+Output:
+Apple
+apple
+  apple
+APPLES
+APPLE
+Pineapple
+
+——
+4. Trimming spaces / other values (case sensitive)
+btrim(‘  abc  ‘) —> ‘abc’	 at both ends 
+rtrim(‘  abc  ‘) —> ‘  abc’ 	only at right end
+ltrim (‘  abc  ‘) —> ‘abc  ‘ 	only at left end
+
+trim(‘Wow!’, ‘!’) —> Wow 
+trim(‘Wow!’, ‘!wW) —> o
+
++combine functions
+
+====================
+Cleaning street values
+====================
+Trim digits 0-9, #, /, ., and spaces from the beginning and end of street.
+
+SELECT distinct street,
+       -- Trim off unwanted characters from street
+       trim(street, '0123456789 #/.') AS cleaned_street
+  FROM evanston311
+ ORDER BY street;
+
+=====================
+Count rows where the description includes 'trash' or 'garbage' but the category does not.
+================
+
+-- Count rows
+SELECT COUNT(*)
+  FROM evanston311 
+ -- description contains trash or garbage (any case)
+ WHERE (description ILIKE '%trash%'
+    OR descripption ILIKE '%garbage%') 
+ -- category does not contain Trash or Garbage
+   AND category NOT LIKE '%Trash%'
+   AND category NOT LIKE '%Garbage%’;
+
+=====================
+Find 10 most common categories for rows with a description about trash that don’t have a trash-related category.
+======================
+-- Count rows with each category
+SELECT category, COUNT(*)
+  FROM evanston311 
+ WHERE (description ILIKE '%trash%'
+    OR description ILIKE '%garbage%') 
+   AND category NOT LIKE '%Trash%'
+   AND category NOT LIKE '%Garbage%'
+ -- What are you counting?
+ GROUP BY category
+ --- order by most frequent values
+ ORDER BY COUNT(*) DESC
+ LIMIT 10;
+
+=======================
+Splitting and concatenating text
+=========================
+1. 
+left(‘abcde’, 2) —> ab
+left(‘abc’, 10) —> abc
+right(‘abcde’, 2) —> de
+length(left(‘abc’, 10)) —> 3
+
+——
+2. Extracting substring (Note: starts from 1)
+SELECT substring(string FROM start FOR length);
+
+e.g. SELECT substring(‘abcdef’ FROM 2 FOR 3) —> bcd
+SELECT substring(‘abcdef’, 2, 3) —> bcd
+
+——
+3. Split on delimiter
+SELECT split_part(string, delimiter, part);
+
+e.g. SELECT split_part(‘a, bc, d’, ‘,’, 2); —> bc (split into 3 parts, but chosen 2nd)
+
+——
+4. Concatenating text
+
+SELECT concat(‘a’, 2, ‘cc’); —> a2cc
+SELECT ‘a’ || 2 || ‘cc’ —> a2cc
+
+Difference between || & concat:
+- || (returns NULL if any value is NULL)
+- concat (omits NULL values)
+
+e.g.
+SELECT concat(‘a’, NULL, ‘cc’); —> acc
+SELECT ‘a’ || NULL || ‘cc’; —> no output
+
+==================
+-- Concatenate house_num, a space, and street
+-- and trim spaces from the start of the result
+SELECT trim(concat(house_num, ' ', street)) AS address
+  FROM evanston311;
+
+==================
+-- Select the first word of the street value
+SELECT split_part(street, ' ', 1) AS street_name, 
+       count(*)
+  FROM evanston311
+ GROUP BY street_name
+ ORDER BY count DESC
+ LIMIT 20;
+
+===================
+Shorten long strings
+===================
+-- Select the first 50 chars when length is greater than 50
+SELECT CASE WHEN length(description) > 50
+            THEN left(description, 50) || '...'
+       -- otherwise just select description
+       ELSE description
+       END
+  FROM evanston311
+ -- limit to descriptions that start with the word I
+ WHERE description LIKE 'I %'
+ ORDER BY description;
+
+Output:
+I work for Schermerhorn & Co. and manage this con…
+I Live in a townhouse with garbage cans in back, i…
+…
+
+=================
+ multiple transformations
+=================
+1. CASE WHEN
+
+-- Case for each of :, -, and |
+SELECT CASE  WHEN category LIKE ‘%: %’ THEN split_part(category, ‘: ‘, 1)
+		     WHEN category LIKE ‘% - %’ THEN split_part(category, ‘ - ‘, 1)
+		     ELSE split_part(category, ‘ | ‘, 1)
+	    END AS major_category, 	-- alias the result
+
+
+——
+2. 
+2.1. CREATE TEMP TABLE (initially duplicating the values in standardized)
+2.2. UPDATE values to create standardized values
+3.2. LEFT JOIN original and recode tables
+
+CREATE TEMP TABLE recode AS 
+	SELECT DISTINCT fav_fruit AS original,
+				fav_fruit AS standardized
+	FROM fruit;
+
+
+UPDATE recode
+	SET standardized=trim(lower(original));
+
+UPDATE recode
+	SET standardized=‘banana’
+WHERE standardize LIKE ‘%nn%’;
+
+UPDATE recode
+	SET standardized=rtrim(standardized, ’s’);
+
+
+SELECT standardized, count(*)
+	FROM fruit
+		LEFT JOIN recode
+		ON fav_fruit=original
+GROUP BY standardized;
+
+
+==========================
+Group and Recode Values
+===========================
+-- Code from previous step
+DROP TABLE IF EXISTS recode;
+CREATE TEMP TABLE recode AS
+  SELECT DISTINCT category, 
+         rtrim(split_part(category, '-', 1)) AS standardized
+  FROM evanston311;
+UPDATE recode SET standardized='Trash Cart' 
+ WHERE standardized LIKE 'Trash%Cart';
+UPDATE recode SET standardized='Snow Removal' 
+ WHERE standardized LIKE 'Snow%Removal%';
+UPDATE recode SET standardized='UNUSED' 
+ WHERE standardized IN ('THIS REQUEST IS INACTIVE...Trash Cart', 
+               '(DO NOT USE) Water Bill',
+               'DO NOT USE Trash', 'NO LONGER IN USE');
+
+-- Select the recoded categories and the count of each
+SELECT standardized, COUNT(*)
+-- From the original table and table with recoded values
+  FROM evanston311 
+       LEFT JOIN recode 
+       -- What column do they have in common?
+       ON evanston311.category=recode.category
+ -- What do you need to group by to count?
+ GROUP BY recode.standardized
+ -- Display the most common val values first
+ ORDER BY COUNT(*) DESC;
+
+===================
+Create table with indicator variables - if description contains email or phone-number
+===================
+-- To clear table if it already exists
+DROP TABLE IF EXISTS indicators;
+
+-- Create the temp table
+CREATE TEMP TABLE indicators AS
+  SELECT id, 
+         CAST (description LIKE '%@%' AS integer) AS email,
+         CAST (description LIKE '%___-___-____%' AS integer) AS phone 
+    FROM evanston311;
+  
+-- Select the column you'll group by
+SELECT priority,
+       -- Compute the proportion of rows with each indicator
+       SUM(email)/COUNT(*)::NUMERIC AS email_prop, 
+       SUM(phone)/COUNT(*)::NUMERIC AS phone_prop
+  -- Tables to select from
+  FROM evanston311
+       LEFT JOIN indicators
+       -- Joining condition
+       ON evanston311.id=indicators.id
+ -- What are you grouping by?
+ GROUP BY priority;
+
+Output:
+Priority	email_prop		phone_prop
+————————————————————
+MEDIUM	0.0196692		0.0184508
+NONE		0.0041222		0.0056846
+HIGH		0.0113636		0.0227272
+LOW 		0.0058027		0.0019342
+
+========================
+Date/Time types and formats
+========================
+Date stored in PostgreSQL according to ISO 8601 standard
+YYYY-MM-DD HH:MM:SS
+
+UTC timezones in timestamps (at the end after ‘+’):
+YYYY-MM-DD HH:MM:SS+HH
+
+now()
+Compare with >, < , =
+Subtract with - (results into interval type)
+
+Add dates with + to date type (not working with timestamp!)
+e.g. SELECT ‘2010-01-01’:: DATE + 1; 
+
+Add intervals:
+e.g. SELEC ‘2018-12-10’:: DATE + ‘1 year 2 days 3 minutes’:: INTERVAL
+
+
+======================
+Date comparisons
+======================
+Note: date_created is saved as timestamp. Either cast it to date or cast the date value on the right to timestamp. Mixed types comparison doesn’t work!
+
+-- Count requests created on January 31, 2017
+SELECT count(*) 
+  FROM evanston311
+ WHERE date_created:: DATE = '2017-01-31' ;
+
+-- Count requests created on March 13, 2017
+SELECT count(*)
+  FROM evanston311
+ WHERE date_created >= '2017-03-13'
+   AND date_created < '2017-03-13'::date + 1;
+
+— How old is the most recent request?
+SELECT now()-MAX(date_created)
+  FROM evanston311
+
+-- Add 100 days to the current timestamp
+SELECT now() + '100 days':: interval;
+
+-- Select the current timestamp, 
+-- and the current timestamp + 5 minutes
+SELECT now(), now() + '5 minutes':: INTERVAL;
+
+-- Select the category and the average completion time by category
+SELECT category, 
+       AVG(date_completed - date_created) AS completion_time
+  FROM evanston311
+ GROUP BY category
+-- Order the results
+ ORDER BY completion_time DESC;
+
+=====================
+Date/time components and aggregation
+==============================
+Fields:
+Century:2019-01-01 = century 21
+decade: 2019-01-01= decade 201
+Year, month, day
+Hour, minute, second
+Week (in the year)
+dow: day of week (starts with Sunday 0 and ends on Saturday 6)
+
+——
+1. Extracting fields
+
+Option 1
+date_part(‘field’, timestamp)
+e.g. SELECT date_part(‘month’, now());
+
+Option 2
+EXTRACT(FIELD FROM timestamp)
+e.g. SELECT(MONTH FROM now());
+
+DAY of MONTH
+to_char(date_created, 'day') —> extract day of week as  Sunday, Monday …
+EXTRACT(DOW FROM date_created) —> extract day of week as number (0 for Sunday, 1 for Monday…)
+
+TIME IN SECONDS
+EXTRACT(epoch FROM interval) —> seconds in interval
+
+——
+3. Truncating dates
+
+date_trunc(‘field’, timestamp)
+e.g. SELECT date_trunc(‘month’, now()); —> 2020-06-01 00:00:00-06
+
+
+=====================
+How many requests are created in each of the 12 months during 2016-2017?
+======================
+-- Extract the month from date_created and count requests
+SELECT date_part('month', date_created) AS month, 
+      COUNT(*)
+  FROM evanston311
+ -- Limit the date range
+ WHERE date_part('year', date_created) >= 2016
+  AND date_part('year', date_created) <= 2017
+ -- Group by what to get monthly counts?
+ GROUP BY month;
+ 
+=======================
+What is the most common hour of the day for requests to be created?
+========================
+-- Get the hour and count requests
+SELECT date_part('hour', date_created) AS hour,
+       count(*)
+  FROM evanston311
+ GROUP BY hour
+ -- Order results to select most common
+ ORDER BY count(*) DESC
+ LIMIT 1;
+
+Output:
+Hour	count
+——————
+9	4089
+
+=========================
+During what hours are requests usually completed? Count requests completed by hour
+=========================
+-- Count requests completed by hour
+SELECT date_part('hour', date_completed) AS hour,
+       count(*)
+  FROM evanston311
+ GROUP BY hour
+ ORDER BY hour;
+
+===========================
+Does the time required to complete a request vary by the day of the week on which the request was created?
+===========================
+-- Select name of the day of the week the request was created 
+SELECT to_char(date_created, 'day') AS day, 
+      -- Select avg time between request creation and completion
+      AVG(date_completed - date_created) AS duration
+  FROM evanston311 
+ -- Group by the name of the day of the week and 
+ -- integer value of day of week the request was created
+ -- to get chronological order of days of the week 
+ GROUP BY day, EXTRACT(DOW FROM date_created)
+ -- Order by integer value of the day of the week 
+ -- the request was created
+ ORDER BY EXTRACT(DOW FROM date_created);
+
+==============================
+the average number of Evanston 311 requests created per day for each month of the data. Ignore days with no requests when taking the average.
+==============================
+-- Aggregate daily counts by month
+SELECT DATE_TRUNC('month', day) AS month,
+       AVG(count)
+  -- Subquery to compute daily counts
+  FROM (SELECT DATE_TRUNC('day', date_created) AS day,
+               COUNT(*) AS count
+          FROM evanston311
+         GROUP BY day) AS daily_count
+ GROUP BY month
+ ORDER BY month;
+
+Output:
+Month			avg
+———		———
+2016-01-01		23.51..
+2016-02-01		30.72..
+2016-03-01		35.54..
+
+============================
+Generate series for time data
+============================
+SELECT generate_series(from, to, interval);
+
+e.g.
+SELECT generate_series(‘2018-01-01’, ‘2018-01-15’, ‘2 days’:: interval);
+
+
+!!! Generate series for the last day of each month
+
+SELECT generate_series(‘2018-02-01’,  -- start 1 month late
+				‘2019-01-01’,
+				‘1 month’ :: interval - ‘1 day’ :: interval
+
+Output:
+2018-01-31 00:00:00
+2018-02-28 00:00:00
+2018-03-31 00:00:00
+…
+===========================
+ Aggregating with series
+===========================
+-- Create the series as a table called hour_series
+WITH hour_series AS (
+	SELECT generate_series(‘2018-04-23 09:00:00’,
+				         ’2018-04-23 14:00:00’,
+					‘1 hour’:: INTERVAL) AS hours)
+-- Hours from series, count date (NOT *) to count non-NULL
+SELECT hours, COUNT(date) 
+	-- Join series to sales data
+	FROM hour_series
+		LEFT JOIN sales
+			ON hours=date_trunc(‘hour’, date)
+GROUP BY hours
+ORDER BY hours;
+ 
+===========================
+Aggregating with bins
+==========================
+-- Create bins
+WITH bins AS (
+	SELECT generate_series (‘2018-04-23 09:00:00’,
+					‘2018-04-23	15:00:00’,
+					‘3 hours’:: INTERVAL) AS lower,
+		    generate_series(‘2018-04-23 12:00:00’,
+				         ‘2018-04-23 18:00:00’,
+					‘3 hours’ :: INTERVAL) AS upper)
+-- Count values in each bin
+SELECT lower, upper, count(date)
+
+	-- left join keeps all bins
+	FROM bins
+		LEFT JOIN sales
+			ON date >= lower
+			AND date < upper
+
+-- Group by bin bounds to create the groups
+GROUP BY lower, upper
+ORDER BY lower;
+
+========================
+Find Missing dates:
+Are there any days in the Evanston 311 data where no requests were created?
+==========================
+SELECT day
+-- 1) Subquery to generate all dates
+-- from min to max date_created
+  FROM (SELECT generate_series(MIN(date_created:: DATE),
+                              MAX(date_created:: DATE),
+                              '1 day' :: INTERVAL) :: DATE AS day
+          -- What table is date_created in?
+          FROM evanston311) AS all_dates
+-- 4) Select dates (day from above) that are NOT IN the subquery
+ WHERE day NOT IN 
+      -- 2) Subquery to select all date_created values as dates
+      (SELECT date_created :: DATE
+          FROM evanston311);
+
+=========================
+Custom aggregation periods:
+the median number of Evanston 311 requests per day in each six month period from 2016-01-01 to 2018-06-30?
+=========================
+
+1.
+-- Generate 6 month bins covering 2016-01-01 to 2018-06-30
+-- Recall that the upper bin values are exclusive, so the values need to be one day greater than the last day to be included in the bin.
+
+-- Create lower bounds of bins
+SELECT generate_series('2016-01-01',  -- First bin lower value
+                       '2018-01-01',  -- Last bin lower value
+                       '6 month'::interval) AS lower,
+-- Create upper bounds of bins
+       generate_series('2016-07-01',  -- First bin upper value
+                       '2018-07-01',  -- Last bin upper value
+                       '6 month'::interval) AS upper;
+
+——
+2.  
+-- Count number of requests made per day
+-- Remember not count * or you will risk counting NULL values
+SELECT day, COUNT(date_created) AS count
+-- Use a daily series from 2016-01-01 to 2018-06-30 
+-- to include days with no requests
+  FROM (SELECT generate_series('2016-01-01',  -- series start date
+                               '2018-06-30',  -- series end date
+                               '1 day'::interval)::date AS day) AS daily_series
+       LEFT JOIN evanston311
+       -- match day from above (which is a date) to date_created
+       ON day = date_created::DATE
+ GROUP BY day;
+
+——
+3. 		
+-- Assign each daily count to a single 6 month bin by joining bins to daily_counts. Compute the median value per bin using percentile_disc().
+
+-- Bins from Step 1
+WITH bins AS (
+	 SELECT generate_series('2016-01-01',
+                            '2018-01-01',
+                            '6 months'::interval) AS lower,
+            generate_series('2016-07-01',
+                            '2018-07-01',
+                            '6 months'::interval) AS upper),
+-- Daily counts from Step 2
+     daily_counts AS (
+     SELECT day, count(date_created) AS count
+       FROM (SELECT generate_series('2016-01-01',
+                                    '2018-06-30',
+                                    '1 day'::interval)::date AS day) AS daily_series
+            LEFT JOIN evanston311
+            ON day = date_created::date
+      GROUP BY day)
+-- Select bin bounds 
+SELECT lower, 
+       upper, 
+       -- Compute median of count for each bin
+       percentile_disc(0.5) WITHIN GROUP (ORDER BY count) AS median
+  -- Join bins and daily_counts
+  FROM bins
+       LEFT JOIN daily_counts
+       -- Where the day is between the bin bounds
+       ON day >= lower
+          AND day < upper
+ -- Group by bin bounds
+ GROUP BY lower, upper
+ ORDER BY lower;
+
+========================
+Monthly Average with missing dates:
+Find the average number of Evanston 311 requests created per day for each month of the data.
+This time, do not ignore dates with no requests.
+===========================
+-- generate series with all days from 2016-01-01 to 2018-06-30
+WITH all_days AS 
+     (SELECT generate_series('2016-01-01',
+                             '2018-06-30',
+                             '1 day'::INTERVAL) AS date),
+     -- Subquery to compute daily counts
+     daily_count AS 
+     (SELECT date_trunc('day', date_created) AS day,
+             count(*) AS count
+        FROM evanston311
+       GROUP BY day)
+-- Aggregate daily counts by month using date_trunc
+SELECT date_trunc('month', date) AS month,
+       -- Use coalesce to replace NULL count values with 0
+       avg(coalesce(count, 0)) AS average
+  FROM all_days
+       LEFT JOIN daily_count
+       -- Joining condition
+       ON all_days.date=daily_count.day
+ GROUP BY month
+ ORDER BY month; 
+
+==============================
+Time between events
+==============================
+Lead() and lag() allow to offset ordered values by 1 row by default - either down one row or up one row. Need ORDER BY always!
+
+SELECT date,
+	lag(date) OVER (ORDER BY date),
+	lead(date) OVER (ORDER BY date)
+FROM sales;
+
+Output:
+Date		Lag		Lead
+———————————————
+2018-04-23 			2018-04-26
+2018-04-26	2018-04-23	2018-04-27
+2018-04-27	2018-04-26
+
+How much time passed since the last sale?
+
+SELECT date,
+	date - lag(date) OVER (ORDER BY date) AS gap
+FROM sales;
+
+=======================
+Average time between events
+=======================
+! Note: window functions can’t be used inside aggregation functions (like AVG…). Need subquery
+
+SELECT AVG(gap)
+	FROM (SELECT 	date,
+				date - lag(date) OVER (ORDER BY date) AS gap
+			FROM sales) AS gaps;
+
+=========================
+Change in a time series:
+How the amount sold changes from one sale to the next?
+=========================
+SELECT date,
+	    amount,
+	    lag(amount) OVER (ORDER BY date),
+	    amount - lag(amount) OVER (ORDER BY date) AS change
+FROM sales;
+
+Output: 
+Date		amount	lag	change
+——————————————————
+2018-04-23	31					
+2018-04-25	12		31	-19
+2018-04-27	18		12	6
+
+======================
+What is the longest time bw submitted requests?
+======================
+-- Compute the gaps
+WITH request_gaps AS (
+        SELECT date_created,
+               -- lead or lag
+               lag(date_created) OVER (ORDER BY date_created) AS previous,
+               -- compute gap as date_created minus lead or lag
+               date_created - lag(date_created) OVER (ORDER BY date_created) AS gap
+          FROM evanston311)
+-- Select the row with the maximum gap
+SELECT *
+  FROM request_gaps
+-- Subquery to select maximum gap from request_gaps
+ WHERE gap = (SELECT MAX(gap)
+                FROM request_gaps);
+
+==========================
+Requests in category “Rodents-Rats” average over 64 days to resolve. Why?
+==========================
+
+1. Why is the average so high? Check the distribution of completion times
+
+- Truncate the time to complete requests to the day
+SELECT date_trunc('day', date_completed - date_created) AS completion_time,
+-- Count requests with each truncated time
+       COUNT(date_completed)
+  FROM evanston311
+-- Where category is rats
+ WHERE category = 'Rodents- Rats'
+-- Group and order by the variable of interest
+ GROUP BY completion_time
+ ORDER BY completion_time;
+
+Output:
+completion_time		count
+———————————————
+0:00:00			73
+1 day				17
+2 days				23
+3 days				11
+…
+	
+==============================
+2. Exclude outliers (the longest 5% of requests) and check average completion time per category
+
+SELECT category, 
+       -- Compute average completion time per category
+       AVG(date_completed - date_created) AS avg_completion_time
+  FROM evanston311
+-- Where completion time is less than the 95th percentile value
+ WHERE date_completed - date_created < 
+-- Compute the 95th percentile of completion time in a subquery
+         (SELECT percentile_disc(0.95) WITHIN GROUP (ORDER BY date_completed - date_created)
+            FROM evanston311)
+ GROUP BY category
+-- Order the results
+ ORDER BY avg_completion_time DESC;
+
+Output:
+Category		avg_completion_time
+———————————————————
+Trash Cart…		12 days, 17:47:50…
+Sanitation Billing …	12 days, 11:13:25...
+…
+
+=======================================
+3. Do requests made in busy months takes longer to complete? Check correlation between the average completion time and requests per month.
+
+-- Compute correlation (corr) between 
+-- avg_completion time and count from the subquery
+SELECT corr(avg_completion, count)
+  -- Convert date_created to its month with date_trunc
+  FROM (SELECT DATE_TRUNC('month', date_created) AS month, 
+               -- Compute average completion time in number of seconds   
+               AVG(EXTRACT(epoch FROM date_completed - date_created)) AS avg_completion, 
+               -- Count requests per month
+               count(*) AS count
+          FROM evanston311
+         -- Limit to rodents
+         WHERE category='Rodents- Rats' 
+         -- Group by month, created above
+         GROUP BY month) 
+         -- Required alias for subquery 
+         AS monthly_avgs;
+
+Output:
+0.2343…
+
+==============================
+4. Compare the number of requests created per month to the number completed
+
+-- Compute monthly counts of requests created
+WITH created AS (
+       SELECT DATE_TRUNC('month', date_created) AS month,
+              count(*) AS created_count
+         FROM evanston311
+        WHERE category='Rodents- Rats'
+        GROUP BY month),
+-- Compute monthly counts of requests completed
+      completed AS (
+       SELECT DATE_TRUNC('month', date_completed) AS month,
+              count(*) AS completed_count
+         FROM evanston311
+        WHERE category='Rodents- Rats'
+        GROUP BY month)
+-- Join monthly created and completed counts
+SELECT created.month, 
+       created_count, 
+       completed_count
+  FROM created
+       INNER JOIN completed
+       ON created.month =completed.month
+ ORDER BY created.month;
+
+Output:
+Month		created_count	completed_count
+———————————————————————
+2016-01-01		11			1
+2016-02-01		21			11
+2016-03-01		31			14
+…
+2017-11-91		44			174	
+
+SOLUTION:
+There is a slight correlation between completion times and the number of requests per month. But the bigger issue is the disproportionately large number of requests completed in Nov 2017.
