@@ -1,0 +1,124 @@
+**********************
+STRING AGGREGATE FUNCTIONS
+**********************
+
+SELECT rating,
+        STRING_AGG(title, ',') as films
+FROM film
+GROUP BY rating;
+
+output:
+raing   films
+----    ----
+PG-13   Airplane Sierra, Alabama Devil, ...
+R       Airport Polloc, Date Speed, ...
+G       Ace Goldfinger, Affair rPerjudice, ...
+
+*****************************
+CHECK TABLES IN DB
+******************************
+in PostgreSQL:
+
+SELECT * FROM pg_catalog.pg_tables;
+
+in SQL Server - TSQL:
+
+SELECT * FROM INFROMATION_SCHEMA.TABLES;
+
+in MySQL:
+
+SHOW TABLES;
+
+
+e.g.
+SELECT *
+FROM pg_catalog.pg_tables
+WHERE schemaname = 'public';
+
+******************
+CHECK TABLES & COLUMNS
+************************
+
+SELECT * FROM information_schema.columns;
+
+(output includes also system tables like pg_catalog, which are not useful for data queries)
+Limit query to return schemas that hold your actual data, e.g. here such schema is called 'public'
+Plus more convinient to return columns for each table in the following format:
+
+CREATE VIEW table_columns AS
+SELECT table_name,
+        STRING_AGG(column_name, ', ') AS columns
+FROM information_schema.columns
+WHERE table_schema = 'public'
+GROUP BY table_name;
+
+Output:
+table        columns
+----         ------
+rental       rental_id, rental_date, inventory_id, ...
+film_actor   actor_id, film_id
+customer     customer_id, first_name, last_name, ...
+
+Note: VIEW = virtual table, can be queried as other tables
+
+*****************
+Store TABLE
+****************
+1. Create new table
+e.g.
+
+CREATE TABLE zip_distance (
+    postal_code INT,
+    distance FLOAT
+    );
+
+INSERT INTO zip_distance (postal_code, distance)
+VALUES
+(53181, 3.4),
+(15540, 10.2),
+(67912, 1.9);
+
+2. Create table using existing data
+e.g.
+CREATE TABLE family_films AS
+SELECT film_id, title
+FROM film
+WHERE rating = 'G';
+
+3. Store query as a view
+CREATE VIEW family_films AS
+...
+
+difference bw TABLE and VIEW:
+TABLE - stores data (static, once and forever)
+VIEW - stores query (if tables change, then info in VIEW gets updated)
+
+***********************
+Update your data
+**********************
+e.g.
+
+UPDATE customer
+SET email = LOWER(email)
+WHERE active = TRUE;
+
+*********************
+Delete your data
+********************
+remove a table:
+DROP TABLE table_name;
+
+clear table of ALL records
+TRUNCATE TABLE table_name;
+
+Clear table of SOME records
+DELETE FROM table_name WHERE condition;
+
+******************
+Comments in SQL
+******************
+/* multi-line comment */
+
+-- single-line comment
+
+
