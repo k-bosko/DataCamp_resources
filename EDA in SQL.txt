@@ -1,7 +1,9 @@
-Notes on “Exploratory Data Analysis in SQL” 
+Notes on “Exploratory Data Analysis in SQL”
 Instructor: Christina Maimone, PhD
 
 =====================================
+MISSING DATA
+====================================
 
 IS NULL, IS NOT NULL 		(don’t use = NULL)
 count(*)				number of rows (including NULLs)
@@ -9,6 +11,8 @@ count(col_name)			number of non-NULL values
 count(DISTINCT col_name)	number of unique non-NULL values
 SELECT DISTINCT col_name	distinct values, including NULL
 
+The AVERAGE  is null only if all values are null
+otherwise AVERAGE function ignores NULLs
 
 =======================
 COUNTING MISSING VALUES
